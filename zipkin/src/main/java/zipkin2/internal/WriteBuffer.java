@@ -243,22 +243,19 @@ public final class WriteBuffer {
 
     boolean negative = false;
     if (v < 0) {
-      v = -v; // making this positive allows us to compare using less-than
+      v = -v;
       negative = true;
     }
-    int width =
-      v < 100000000L
-        ? v < 10000L
-        ? v < 100L ? v < 10L ? 1 : 2 : v < 1000L ? 3 : 4
-        : v < 1000000L ? v < 100000L ? 5 : 6 : v < 10000000L ? 7 : 8
-        : v < 1000000000000L
-          ? v < 10000000000L ? v < 1000000000L ? 9 : 10 : v < 100000000000L ? 11 : 12
-          : v < 1000000000000000L
-            ? v < 10000000000000L ? 13 : v < 100000000000000L ? 14 : 15
-            : v < 100000000000000000L
-              ? v < 10000000000000000L ? 16 : 17
-              : v < 1000000000000000000L ? 18 : 19;
-    return negative ? width + 1 : width; // conditionally add room for negative sign
+
+    int width = 1;
+    long magnitude = 1;
+
+    while (v >= magnitude * 10) {
+      magnitude *= 10;
+      width++;
+    }
+
+    return negative ? width + 1 : width;
   }
 
   /**

@@ -22,84 +22,168 @@ import zipkin2.internal.JsonCodec.JsonReaderAdapter;
 public final class V2SpanReader implements JsonReaderAdapter<Span> {
   Span.Builder builder;
 
-  @Override public Span fromJson(JsonReader reader) throws IOException {
+  @Override
+  public Span fromJson(JsonReader reader) throws IOException {
+    initializeBuilder();
+    reader.beginObject();
+
+    while (reader.hasNext()) {
+      processNextField(reader);
+    }
+
+    reader.endObject();
+    return builder.build();
+  }
+
+  private void initializeBuilder() {
     if (builder == null) {
       builder = Span.newBuilder();
     } else {
       builder.clear();
     }
+  }
+
+  private void processNextField(JsonReader reader) throws IOException {
+    String nextName = reader.nextName();
+
+    switch (nextName) {
+      case "traceId":
+      case "id":
+        setStringField(nextName, reader.nextString());
+        break;
+      case "parentId":
+        setStringField("parentId", reader.nextString());
+        break;
+      case "kind":
+        builder.kind(Span.Kind.valueOf(reader.nextString()));
+        break;
+      case "name":
+        setStringField("name", reader.nextString());
+        break;
+      case "timestamp":
+      case "duration":
+        setLongField(nextName, reader.nextLong());
+        break;
+      case "localEndpoint":
+      case "remoteEndpoint":
+        setEndpointField(nextName, reader);
+        break;
+      case "annotations":
+        processAnnotations(reader);
+        break;
+      case "tags":
+        processTags(reader);
+        break;
+      case "debug":
+        setBooleanField("debug", reader.nextBoolean());
+        break;
+      case "shared":
+        setBooleanField("shared", reader.nextBoolean());
+        break;
+      default:
+        reader.skipValue();
+    }
+  }
+
+  private void setStringField(String fieldName, String value) {
+    switch (fieldName) {
+      case "traceId":
+        builder.traceId(value);
+        break;
+      case "id":
+        builder.id(value);
+        break;
+      case "parentId":
+        builder.parentId(value);
+        break;
+      case "name":
+        builder.name(value);
+        break;
+    }
+  }
+
+  private void setLongField(String fieldName, long value) {
+    switch (fieldName) {
+      case "timestamp":
+        builder.timestamp(value);
+        break;
+      case "duration":
+        builder.duration(value);
+        break;
+    }
+  }
+
+  private void setEndpointField(String fieldName, JsonReader reader) throws IOException {
+    switch (fieldName) {
+      case "localEndpoint":
+        builder.localEndpoint(ENDPOINT_READER.fromJson(reader));
+        break;
+      case "remoteEndpoint":
+        builder.remoteEndpoint(ENDPOINT_READER.fromJson(reader));
+        break;
+    }
+  }
+
+  private void setBooleanField(String fieldName, boolean value) {
+    switch (fieldName) {
+      case "debug":
+        if (value) builder.debug(true);
+        break;
+      case "shared":
+        if (value) builder.shared(true);
+        break;
+    }
+  }
+
+  private void processAnnotations(JsonReader reader) throws IOException {
+    reader.beginArray();
+    while (reader.hasNext()) {
+      processAnnotation(reader);
+    }
+    reader.endArray();
+  }
+
+  private void processAnnotation(JsonReader reader) throws IOException {
     reader.beginObject();
+    Long timestamp = null;
+    String value = null;
+
     while (reader.hasNext()) {
       String nextName = reader.nextName();
-      if (nextName.equals("traceId")) {
-        builder.traceId(reader.nextString());
-        continue;
-      } else if (nextName.equals("id")) {
-        builder.id(reader.nextString());
-        continue;
-      } else if (reader.peekNull()) {
-        reader.skipValue();
-        continue;
-      }
-
-      // read any optional fields
-      if (nextName.equals("parentId")) {
-        builder.parentId(reader.nextString());
-      } else if (nextName.equals("kind")) {
-        builder.kind(Span.Kind.valueOf(reader.nextString()));
-      } else if (nextName.equals("name")) {
-        builder.name(reader.nextString());
-      } else if (nextName.equals("timestamp")) {
-        builder.timestamp(reader.nextLong());
-      } else if (nextName.equals("duration")) {
-        builder.duration(reader.nextLong());
-      } else if (nextName.equals("localEndpoint")) {
-        builder.localEndpoint(ENDPOINT_READER.fromJson(reader));
-      } else if (nextName.equals("remoteEndpoint")) {
-        builder.remoteEndpoint(ENDPOINT_READER.fromJson(reader));
-      } else if (nextName.equals("annotations")) {
-        reader.beginArray();
-        while (reader.hasNext()) {
-          reader.beginObject();
-          Long timestamp = null;
-          String value = null;
-          while (reader.hasNext()) {
-            nextName = reader.nextName();
-            if (nextName.equals("timestamp")) {
-              timestamp = reader.nextLong();
-            } else if (nextName.equals("value")) {
-              value = reader.nextString();
-            } else {
-              reader.skipValue();
-            }
-          }
-          if (timestamp == null || value == null) {
-            throw new IllegalArgumentException("Incomplete annotation at " + reader.getPath());
-          }
-          reader.endObject();
-          builder.addAnnotation(timestamp, value);
-        }
-        reader.endArray();
-      } else if (nextName.equals("tags")) {
-        reader.beginObject();
-        while (reader.hasNext()) {
-          String key = reader.nextName();
-          if (reader.peekNull()) {
-            throw new IllegalArgumentException("No value at " + reader.getPath());
-          }
-          builder.putTag(key, reader.nextString());
-        }
-        reader.endObject();
-      } else if (nextName.equals("debug")) {
-        if (reader.nextBoolean()) builder.debug(true);
-      } else if (nextName.equals("shared")) {
-        if (reader.nextBoolean()) builder.shared(true);
-      } else {
-        reader.skipValue();
+      switch (nextName) {
+        case "timestamp":
+          timestamp = reader.nextLong();
+          break;
+        case "value":
+          value = reader.nextString();
+          break;
+        default:
+          reader.skipValue();
       }
     }
+
+    if (timestamp == null || value == null) {
+      throw new IllegalArgumentException("Incomplete annotation at " + reader.getPath());
+    }
+
     reader.endObject();
-    return builder.build();
+    builder.addAnnotation(timestamp, value);
+  }
+
+  private void processTags(JsonReader reader) throws IOException {
+    reader.beginObject();
+    while (reader.hasNext()) {
+      processTag(reader);
+    }
+    reader.endObject();
+  }
+
+  private void processTag(JsonReader reader) throws IOException {
+    String key = reader.nextName();
+    if (reader.peekNull()) {
+      throw new IllegalArgumentException("No value at " + reader.getPath());
+    }
+    builder.putTag(key, reader.nextString());
   }
 
   @Override public String toString() {
